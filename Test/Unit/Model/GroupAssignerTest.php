@@ -7,8 +7,10 @@ declare(strict_types=1);
 
 namespace DmLab\CustomerSso\Test\Unit\Model;
 
+use DmLab\CustomerSso\Model\ActiveProviderResolver;
 use DmLab\CustomerSso\Model\Config;
 use DmLab\CustomerSso\Model\GroupAssigner;
+use DmLab\SsoCore\Api\ProviderPresetInterface;
 use DmLab\SsoCore\Model\Data\Identity;
 use DmLab\SsoCore\Model\Mapping\MappingEngine;
 use Magento\Customer\Api\CustomerRepositoryInterface;
@@ -40,6 +42,9 @@ class GroupAssignerTest extends TestCase
     /** @var GroupAssigner */
     private GroupAssigner $assigner;
 
+    /** @var string|null groups claim of the active preset; null = the preset exposes none */
+    private ?string $groupsClaim = 'groups';
+
     protected function setUp(): void
     {
         $this->config = $this->createStub(Config::class);
@@ -56,6 +61,11 @@ class GroupAssignerTest extends TestCase
         $groupManagement = $this->createStub(GroupManagementInterface::class);
         $groupManagement->method('getDefaultGroup')->willReturn($defaultGroup);
 
+        $preset = $this->createStub(ProviderPresetInterface::class);
+        $preset->method('getGroupsClaim')->willReturnCallback(fn(): ?string => $this->groupsClaim);
+        $resolver = $this->createStub(ActiveProviderResolver::class);
+        $resolver->method('getActive')->willReturn($preset);
+
         // Real mapping engine — the resolution logic is what we're exercising.
         $this->assigner = new GroupAssigner(
             $this->config,
@@ -63,7 +73,8 @@ class GroupAssignerTest extends TestCase
             $this->customerRepository,
             $groupManagement,
             $this->groupRepository,
-            $storeManager
+            $storeManager,
+            $resolver
         );
     }
 
@@ -180,6 +191,23 @@ class GroupAssignerTest extends TestCase
         self::assertSame(
             $customer,
             $this->assigner->assign($customer, new Identity('sub', 'u@example.com', 'U', ['vip']))
+        );
+    }
+
+    public function testNoOpWhenPresetHasNoGroupsClaim(): void
+    {
+        // Generic OIDC with an empty Groups Claim: no groups arrive, so the map must
+        // not demote a customer on a mapped group to the default.
+        $this->withRules(['vip' => '5']);
+        $this->groupsClaim = null;
+        $customer = $this->customer('5');
+
+        $customer->expects(self::never())->method('setGroupId');
+        $this->customerRepository->expects(self::never())->method('save');
+
+        self::assertSame(
+            $customer,
+            $this->assigner->assign($customer, new Identity('sub', 'u@example.com', 'U', []))
         );
     }
 

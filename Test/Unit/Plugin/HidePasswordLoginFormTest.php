@@ -30,6 +30,7 @@ class HidePasswordLoginFormTest extends TestCase
         $config = $this->createStub(Config::class);
         $config->method('isEnabled')->willReturn($enabled);
         $config->method('isPasswordLoginAllowed')->willReturn($passwordAllowed);
+        $config->method('getClientId')->willReturn('client');
 
         $resolver = $this->createStub(ActiveProviderResolver::class);
         $resolver->method('getActive')->willReturn(

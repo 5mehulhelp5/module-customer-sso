@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+- Hyvä: the login-page button renders the Tailwind template automatically on Hyvä themes (no layout edit); CSP-compatible (no inline script or handlers).
+- Upgrade: a Hyvä theme that sets its own template for `dmlab.customer.sso.button` in `customer_account_login.xml` must move that `referenceBlock` to `hyva_customer_account_login.xml`, or the module template wins.
+- README: checkout and minicart status on Hyvä documented.
+- Added: Generic OIDC provider (`dmlab_customer_sso/generic/*`, store-scoped) — sign in through any OpenID Connect IdP from admin config, no plugin needed.
+- "Generic OIDC" in the Identity Provider list.
+- README: Keycloak and Authentik walkthroughs.
+- Requires `dmlab/module-sso-core ^0.3.0`.
+
 ## 0.2.5
 
 - Supports Magento 2.4.7+ (`magento/framework ^103.0.7`) and PHP 8.2–8.5.

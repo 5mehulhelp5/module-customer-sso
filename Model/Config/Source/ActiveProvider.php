@@ -9,6 +9,7 @@ namespace DmLab\CustomerSso\Model\Config\Source;
 
 use DmLab\CustomerSso\Model\PresetRegistry;
 use Magento\Framework\Data\OptionSourceInterface;
+use Magento\Framework\Phrase;
 
 /**
  * Active-provider dropdown source for the storefront SSO config field.
@@ -21,22 +22,25 @@ class ActiveProvider implements OptionSourceInterface
 {
     /**
      * @param PresetRegistry $presetRegistry
+     * @param array<string,string|Phrase> $optionLabels Provider code => dropdown label overriding the preset label.
      */
     public function __construct(
-        private readonly PresetRegistry $presetRegistry
+        private readonly PresetRegistry $presetRegistry,
+        private readonly array $optionLabels = []
     ) {
     }
 
     /**
      * @inheritDoc
      *
-     * @return array<int,array{value:string,label:\Magento\Framework\Phrase|string}>
+     * @return array<int,array{value:string,label:Phrase|string}>
      */
     public function toOptionArray(): array
     {
         $options = [['value' => '', 'label' => __('-- Please Select --')]];
         foreach ($this->presetRegistry->getAll() as $preset) {
-            $options[] = ['value' => $preset->getCode(), 'label' => $preset->getLabel()];
+            $code = $preset->getCode();
+            $options[] = ['value' => $code, 'label' => $this->optionLabels[$code] ?? $preset->getLabel()];
         }
 
         return $options;

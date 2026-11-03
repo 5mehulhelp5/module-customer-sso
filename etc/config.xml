@@ -15,6 +15,10 @@
                 <auto_link_policy>require_verification</auto_link_policy>
                 <idp_logout>0</idp_logout>
             </general>
+            <generic>
+                <scopes>openid profile email</scopes>
+                <groups_claim>groups</groups_claim>
+            </generic>
         </dmlab_customer_sso>
     </default>
 </config>

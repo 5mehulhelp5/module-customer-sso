@@ -38,7 +38,7 @@ DMLab,DMLab
 General,General
 "Enable Customer SSO","Enable Customer SSO"
 "Identity Provider","Identity Provider"
-"The list is populated by installed provider plugins (e.g. customer-sso-okta).","The list is populated by installed provider plugins (e.g. customer-sso-okta)."
+"Generic OIDC works with any OpenID Connect provider; plugins (e.g. customer-sso-okta) add branded ones.","Generic OIDC works with any OpenID Connect provider; plugins (e.g. customer-sso-okta) add branded ones."
 "Client ID","Client ID"
 "Client Secret","Client Secret"
 "Keep Password Login","Keep Password Login"
@@ -63,3 +63,15 @@ General,General
                         <code>customer/account/logoutSuccess</code> as a post-logout redirect URI at the IdP.","Customer logout also ends the IdP session (all apps signed in through it) when
                         the IdP advertises <code>end_session_endpoint</code>. Register
                         <code>customer/account/logoutSuccess</code> as a post-logout redirect URI at the IdP."
+"Generic OIDC","Generic OIDC"
+"Any OpenID Connect provider. Client ID and Secret are set under General.","Any OpenID Connect provider. Client ID and Secret are set under General."
+"Issuer URL","Issuer URL"
+"e.g. <code>https://sso.example.com/realms/shop</code>. Discovery is read from <code>/.well-known/openid-configuration</code> under it; a full discovery URL also works. https only (http only for localhost).","e.g. <code>https://sso.example.com/realms/shop</code>. Discovery is read from <code>/.well-known/openid-configuration</code> under it; a full discovery URL also works. https only (http only for localhost)."
+"Display Name","Display Name"
+"Shown on the sign-in button (""Sign in with …"") and in My Account. Default: SSO.","Shown on the sign-in button (""Sign in with …"") and in My Account. Default: SSO."
+"Scopes","Scopes"
+"Space-separated. <code>openid</code> is always sent.","Space-separated. <code>openid</code> is always sent."
+"Groups Claim","Groups Claim"
+"ID token claim listing the user's groups, used by Group to Customer-Group Map. Empty = no group mapping.","ID token claim listing the user's groups, used by Group to Customer-Group Map. Empty = no group mapping."
+"Extra Authorization Parameters","Extra Authorization Parameters"
+"One <code>key=value</code> per line, e.g. <code>prompt=select_account</code>. Blank lines and <code>#</code> comments are ignored.","One <code>key=value</code> per line, e.g. <code>prompt=select_account</code>. Blank lines and <code>#</code> comments are ignored."

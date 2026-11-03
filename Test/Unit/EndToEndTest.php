@@ -28,6 +28,7 @@ use DmLab\SsoCore\Api\AuthorizationStateStorageInterface;
 use DmLab\SsoCore\Api\Data\AuthorizationStateInterface;
 use DmLab\SsoCore\Api\ProviderPresetInterface;
 use DmLab\SsoCore\Model\Mapping\MappingEngine;
+use DmLab\SsoCore\Model\Oidc\AuthorizationRequest;
 use DmLab\SsoCore\Model\Oidc\AuthorizationRequestFactory;
 use DmLab\SsoCore\Model\Oidc\AuthorizationResponseValidator;
 use DmLab\SsoCore\Model\Oidc\DiscoveryClient;
@@ -36,6 +37,10 @@ use DmLab\SsoCore\Model\Oidc\IdTokenValidator;
 use DmLab\SsoCore\Model\Oidc\ProviderMetadata;
 use DmLab\SsoCore\Model\Oidc\TokenClient;
 use DmLab\SsoCore\Model\Oidc\TokenResponse;
+use DmLab\SsoCore\Model\Oidc\UrlPolicy;
+use DmLab\SsoCore\Model\Preset\GenericOidcConfig;
+use DmLab\SsoCore\Model\Preset\GenericOidcConfigParser;
+use DmLab\SsoCore\Model\Preset\GenericOidcPreset;
 use Magento\Customer\Api\CustomerRepositoryInterface;
 use Magento\Customer\Api\Data\CustomerInterface;
 use Magento\Customer\Api\Data\CustomerInterfaceFactory;
@@ -66,6 +71,7 @@ use Magento\Framework\Url\ScopeResolverInterface;
 use Magento\Framework\Validator\Url as UrlValidator;
 use Magento\Framework\UrlInterface;
 use Magento\Store\Api\Data\StoreInterface;
+use Magento\Store\Model\ScopeInterface as StoreScopeInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -112,6 +118,12 @@ class EndToEndTest extends TestCase
 
     /** Id of a pre-existing customer matched by email. */
     private const EXISTING_CUSTOMER_ID = 7;
+
+    /** Config base path of the built-in generic preset (etc/di.xml). */
+    private const GENERIC_PATH = 'dmlab_customer_sso/generic/';
+
+    /** Issuer of the generic (Keycloak-style) IdP. */
+    private const GENERIC_ISSUER = 'https://kc.example/realms/shop';
 
     /** @var array<string,string> live, mutable storefront config. */
     private array $configValues;
@@ -164,6 +176,15 @@ class EndToEndTest extends TestCase
     /** @var array<string,mixed> claims the stub IdP token yields. */
     private array $claims;
 
+    /** @var list<string> discovery URLs requested, in order. */
+    private array $discoveryUrls = [];
+
+    /** @var ManagerInterface&MockObject start flash messages. */
+    private $startMessages;
+
+    /** @var LoggerInterface&MockObject start logger. */
+    private $startLogger;
+
     protected function setUp(): void
     {
         $this->configValues = [
@@ -194,7 +215,11 @@ class EndToEndTest extends TestCase
         $encryptor->method('decrypt')->willReturn('plain-secret');
 
         $config = new Config($scopeConfig, $encryptor);
-        $presetRegistry = new PresetRegistry([$this->stubPreset()]);
+        $genericPreset = new GenericOidcPreset(
+            new GenericOidcConfig($scopeConfig, 'dmlab_customer_sso/generic', StoreScopeInterface::SCOPE_STORE),
+            new GenericOidcConfigParser(new UrlPolicy())
+        );
+        $presetRegistry = new PresetRegistry([$this->stubPreset(), $genericPreset]);
         $resolver = new ActiveProviderResolver($scopeConfig, $presetRegistry);
 
         $url = $this->createStub(UrlInterface::class);
@@ -209,14 +234,17 @@ class EndToEndTest extends TestCase
             'url' => $url,
         ]);
 
-        $metadata = new ProviderMetadata(
-            'https://idp.example.com',
-            'https://idp.example.com/authorize',
-            'https://idp.example.com/token',
-            'https://idp.example.com/jwks'
-        );
         $discoveryClient = $this->createStub(DiscoveryClient::class);
-        $discoveryClient->method('discover')->willReturn($metadata);
+        $discoveryClient->method('discover')->willReturnCallback(
+            function (string $url): ProviderMetadata {
+                $this->discoveryUrls[] = $url;
+                $issuer = str_starts_with($url, self::GENERIC_ISSUER . '/')
+                    ? self::GENERIC_ISSUER
+                    : 'https://idp.example.com';
+
+                return new ProviderMetadata($issuer, $issuer . '/authorize', $issuer . '/token', $issuer . '/jwks');
+            }
+        );
 
         $random = $this->createStub(Random::class);
         $random->method('getRandomBytes')->willReturn(str_repeat("\x1a", 32));
@@ -279,7 +307,8 @@ class EndToEndTest extends TestCase
             $customerRepository,
             $this->groupManagement(),
             $this->groupRepository(),
-            $storeManager
+            $storeManager,
+            $resolver
         );
 
         $this->session = $this->createMock(Session::class);
@@ -310,8 +339,8 @@ class EndToEndTest extends TestCase
             new UrlValidator(),
             new HostChecker($scopeResolver),
             $this->redirectFactory($this->startRedirect),
-            $this->createMock(ManagerInterface::class),
-            $this->createMock(LoggerInterface::class)
+            $this->startMessages = $this->createMock(ManagerInterface::class),
+            $this->startLogger = $this->createMock(LoggerInterface::class)
         );
 
         $this->callbackRedirect = $this->createMock(Redirect::class);
@@ -475,6 +504,95 @@ class EndToEndTest extends TestCase
         // The button gates on isAvailable() (enabled AND a provider); a disabled
         // module renders nothing even though a provider is still selected.
         self::assertFalse($this->block->isAvailable());
+    }
+
+    public function testGenericPresetKeycloakLoginMapsGroup(): void
+    {
+        $this->useGenericPreset([
+            'issuer_url' => self::GENERIC_ISSUER . '/',
+            'display_name' => 'Keycloak',
+            'scopes' => 'openid email offline_access',
+            'groups_claim' => 'groups',
+            'extra_auth_params' => 'prompt=select_account',
+        ]);
+
+        self::assertSame('Sign in with Keycloak', $this->block->getButtonLabel());
+
+        $state = $this->runStart();
+
+        self::assertSame([self::GENERIC_ISSUER . '/.well-known/openid-configuration'], $this->discoveryUrls);
+        $request = $this->readSavedStates()[$state];
+        self::assertInstanceOf(AuthorizationRequest::class, $request);
+        $authUrl = $request->getUrl();
+        self::assertStringStartsWith(self::GENERIC_ISSUER . '/authorize?', $authUrl);
+        parse_str((string)parse_url($authUrl, PHP_URL_QUERY), $query);
+        self::assertSame('openid email offline_access', $query['scope'] ?? null);
+        self::assertSame('select_account', $query['prompt'] ?? null);
+
+        $this->newCustomer->expects(self::once())->method('setEmail')->with(self::EMAIL);
+        $this->newCustomer->expects(self::once())->method('setGroupId')->with((int)self::VIP_GROUP_ID);
+        $this->session->expects(self::once())->method('setCustomerDataAsLoggedIn')->with($this->newCustomer);
+
+        $this->runCallback('auth-code', $state, 'customer/account');
+
+        self::assertSame(
+            self::NEW_CUSTOMER_ID,
+            $this->subjectLinks['generic|' . self::GENERIC_ISSUER . '|' . self::SUBJECT] ?? null
+        );
+    }
+
+    public function testGenericPresetWithEmptyGroupsClaimLeavesGroupUntouched(): void
+    {
+        $this->useGenericPreset([
+            'issuer_url' => self::GENERIC_ISSUER,
+            'groups_claim' => '',
+        ]);
+        // An existing customer on a non-default group: an empty claim must not demote them.
+        $existing = $this->createMock(CustomerInterface::class);
+        $existing->method('getId')->willReturn((string)self::EXISTING_CUSTOMER_ID);
+        $existing->method('getGroupId')->willReturn((int)self::VIP_GROUP_ID);
+        $this->customersByEmail[self::EMAIL] = $existing;
+        $state = $this->runStart();
+
+        $existing->expects(self::never())->method('setGroupId');
+        $this->session->expects(self::once())->method('setCustomerDataAsLoggedIn')->with($existing);
+
+        $this->runCallback('auth-code', $state, 'customer/account');
+    }
+
+    public function testGenericPresetWithBlankIssuerFailsStartCleanly(): void
+    {
+        $this->useGenericPreset(['issuer_url' => '']);
+
+        $this->startLogger->expects(self::once())->method('critical')
+            ->with(self::isInstanceOf(\InvalidArgumentException::class));
+        $this->startMessages->expects(self::once())->method('addErrorMessage')->with(
+            self::callback(
+                static fn($message): bool => str_starts_with((string)$message, 'Could not start SSO sign-in')
+            )
+        );
+        $this->startRedirect->expects(self::never())->method('setUrl');
+        $this->startRedirect->expects(self::once())->method('setPath')
+            ->with('customer/account/login')
+            ->willReturnSelf();
+
+        self::assertSame($this->startRedirect, $this->startController->execute());
+        self::assertSame([], $this->discoveryUrls);
+        self::assertSame([], $this->readSavedStates());
+    }
+
+    /**
+     * Activate the generic preset with the given `generic/*` fields; the IdP issues tokens as that issuer.
+     *
+     * @param array<string,string> $fields
+     */
+    private function useGenericPreset(array $fields): void
+    {
+        $this->configValues[ActiveProviderResolver::XML_PATH_ACTIVE_PROVIDER] = GenericOidcPreset::CODE;
+        foreach ($fields as $field => $value) {
+            $this->configValues[self::GENERIC_PATH . $field] = $value;
+        }
+        $this->claims['iss'] = self::GENERIC_ISSUER;
     }
 
     /**

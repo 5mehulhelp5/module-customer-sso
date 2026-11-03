@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
+ */
+-->
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <body>
+        <!-- Hyvä redeclares customer.login.container, dropping children added by the base handle. -->
+        <referenceContainer name="customer.login.container">
+            <block class="DmLab\CustomerSso\Block\Login\Sso"
+                   name="dmlab.customer.sso.button"
+                   before="customer_form_login"
+                   template="DmLab_CustomerSso::login/sso-button-hyva.phtml"/>
+        </referenceContainer>
+    </body>
+</page>

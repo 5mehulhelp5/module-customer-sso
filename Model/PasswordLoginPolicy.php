@@ -10,8 +10,9 @@ namespace DmLab\CustomerSso\Model;
 /**
  * Decides whether native email/password login is off ("Keep Password Login" = No).
  *
- * Only while SSO is live (enabled with an active provider), so a mis-set toggle on an
- * unconfigured or broken install can never lock shoppers out with no way in.
+ * Only while SSO is live (enabled, an active provider, a client id and a valid discovery
+ * URL), so a mis-set toggle on an unconfigured or broken install can never lock shoppers
+ * out with no way in — e.g. Generic OIDC selected with an inherited blank Issuer URL.
  */
 class PasswordLoginPolicy
 {
@@ -35,6 +36,30 @@ class PasswordLoginPolicy
     {
         return $this->config->isEnabled($storeId)
             && !$this->config->isPasswordLoginAllowed($storeId)
-            && $this->activeProviderResolver->getActive($storeId) !== null;
+            && $this->isSsoStartable($storeId);
+    }
+
+    /**
+     * Whether a sign-in could start: mirrors the preconditions of AuthorizationStarter.
+     *
+     * The preset reads its own config for the current store, as on sign-in start.
+     *
+     * @param int|string|null $storeId
+     */
+    private function isSsoStartable($storeId): bool
+    {
+        $preset = $this->activeProviderResolver->getActive($storeId);
+        $clientId = $this->config->getClientId($storeId);
+        if ($preset === null || $clientId === null) {
+            return false;
+        }
+
+        try {
+            $preset->buildDiscoveryUrl(['client_id' => $clientId]);
+        } catch (\Exception $e) {
+            return false;
+        }
+
+        return true;
     }
 }

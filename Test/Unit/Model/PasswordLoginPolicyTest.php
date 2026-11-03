@@ -17,15 +17,17 @@ use PHPUnit\Framework\TestCase;
 class PasswordLoginPolicyTest extends TestCase
 {
     /**
-     * @return array<string, array{bool, bool, bool, bool}>
+     * @return array<string, array{bool, bool, bool, ?string, bool, bool}>
      */
     public static function cases(): array
     {
         return [
-            'disabled under live SSO' => [true, false, true, true],
-            'password login kept' => [true, true, true, false],
-            'module disabled' => [false, false, true, false],
-            'no active provider (break-glass)' => [true, false, false, false],
+            'disabled under live SSO' => [true, false, true, 'client', true, true],
+            'password login kept' => [true, true, true, 'client', true, false],
+            'module disabled' => [false, false, true, 'client', true, false],
+            'no active provider (break-glass)' => [true, false, false, 'client', true, false],
+            'no client id (break-glass)' => [true, false, true, null, true, false],
+            'invalid discovery URL, e.g. blank issuer (break-glass)' => [true, false, true, 'client', false, false],
         ];
     }
 
@@ -34,16 +36,24 @@ class PasswordLoginPolicyTest extends TestCase
         bool $enabled,
         bool $passwordAllowed,
         bool $providerActive,
+        ?string $clientId,
+        bool $discoveryValid,
         bool $expected
     ): void {
         $config = $this->createMock(Config::class);
         $config->method('isEnabled')->with(4)->willReturn($enabled);
         $config->method('isPasswordLoginAllowed')->with(4)->willReturn($passwordAllowed);
+        $config->method('getClientId')->with(4)->willReturn($clientId);
 
+        $preset = $this->createStub(ProviderPresetInterface::class);
+        if ($discoveryValid) {
+            $preset->method('buildDiscoveryUrl')->willReturn('https://idp.example/.well-known/openid-configuration');
+        } else {
+            $preset->method('buildDiscoveryUrl')
+                ->willThrowException(new \InvalidArgumentException('The OIDC issuer URL is not configured.'));
+        }
         $resolver = $this->createStub(ActiveProviderResolver::class);
-        $resolver->method('getActive')->willReturn(
-            $providerActive ? $this->createStub(ProviderPresetInterface::class) : null
-        );
+        $resolver->method('getActive')->willReturn($providerActive ? $preset : null);
 
         self::assertSame($expected, (new PasswordLoginPolicy($config, $resolver))->isPasswordLoginDisabled(4));
     }

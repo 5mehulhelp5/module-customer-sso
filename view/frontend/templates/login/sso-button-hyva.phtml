@@ -4,8 +4,7 @@
  * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  *
  * Hyvä variant of the SSO login button: Tailwind markup, plain link, no RequireJS.
- * To use it, point the `dmlab.customer.sso.button` block in a Hyvä theme's
- * `customer_account_login.xml` at `DmLab_CustomerSso::login/sso-button-hyva.phtml`.
+ * Selected automatically on Hyvä themes via the `hyva_customer_account_login` handle.
  *
  * @var \DmLab\CustomerSso\Block\Login\Sso $block
  * @var \Magento\Framework\Escaper $escaper
@@ -13,7 +12,7 @@
 ?>
 <?php if ($block->isAvailable()): ?>
     <?php $iconUrl = $block->getButtonIconUrl(); ?>
-    <div class="dmlab-customer-sso my-4">
+    <div class="dmlab-customer-sso col-span-full">
         <a class="btn btn-secondary w-full justify-center gap-2"
            href="<?= $escaper->escapeUrl($block->getStartUrl()) ?>">
             <?php if ($iconUrl !== null): ?>

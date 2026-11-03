@@ -8,12 +8,20 @@ declare(strict_types=1);
 namespace DmLab\CustomerSso\Test\Unit\View;
 
 use DmLab\CustomerSso\Block\Login\Sso;
+use DOMDocument;
+use DOMElement;
+use DOMXPath;
 use Magento\Framework\Escaper;
 use PHPUnit\Framework\TestCase;
 
 class SsoButtonHyvaTemplateTest extends TestCase
 {
     private const TEMPLATE = __DIR__ . '/../../../view/frontend/templates/login/sso-button-hyva.phtml';
+
+    /** Classes present in stock Hyvä default/default-csp CSS; `<img>` classes excluded (DML-29). */
+    private const STOCK_HYVA_CLASSES = [
+        'dmlab-customer-sso', 'col-span-full', 'btn', 'btn-secondary', 'w-full', 'justify-center', 'gap-2',
+    ];
 
     private function render(Sso $block): string
     {
@@ -55,6 +63,27 @@ class SsoButtonHyvaTemplateTest extends TestCase
         self::assertStringContainsString('class="btn btn-secondary w-full justify-center gap-2"', $html);
         self::assertStringNotContainsString('<script', $html);
         self::assertStringNotContainsString('x-data', $html);
+    }
+
+    public function testRootIsFullWidthAndUsesOnlyStockHyvaClasses(): void
+    {
+        $dom = new DOMDocument();
+        $html = $this->render($this->block(true, 'https://cdn.test/okta.svg'));
+        self::assertTrue($dom->loadHTML($html, LIBXML_NOERROR));
+        $xpath = new DOMXPath($dom);
+
+        $root = $xpath->query('//div')->item(0);
+        $link = $xpath->query('//a')->item(0);
+        self::assertInstanceOf(DOMElement::class, $root);
+        self::assertInstanceOf(DOMElement::class, $link);
+
+        $rootClasses = preg_split('/\s+/', trim($root->getAttribute('class')));
+        $linkClasses = preg_split('/\s+/', trim($link->getAttribute('class')));
+        self::assertContains('col-span-full', $rootClasses);
+        self::assertSame([], array_values(array_diff(
+            array_merge($rootClasses, $linkClasses),
+            self::STOCK_HYVA_CLASSES
+        )));
     }
 
     public function testAvailableWithoutIconOmitsImage(): void

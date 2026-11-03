@@ -92,6 +92,33 @@ class PackagingTest extends TestCase
         self::assertSame('0.2.0', (string)$xml->module['setup_version']);
     }
 
+    public function testComposerVersionIsTopChangelogSection(): void
+    {
+        $composer = json_decode((string)file_get_contents($this->root() . '/composer.json'), true);
+        $version = $composer['version'] ?? '';
+        self::assertNotSame('', $version);
+        $changelog = (string)file_get_contents($this->root() . '/CHANGELOG.md');
+        self::assertSame(1, preg_match('/^## (.+)$/m', $changelog, $match));
+        self::assertSame($version, $match[1]);
+    }
+
+    public function testReadmeHyvaSectionDocumentsAutoWiringAndStatus(): void
+    {
+        $readme = (string)file_get_contents($this->root() . '/README.md');
+        self::assertSame(1, preg_match('/^## Hyvä\n(.*?)(?=^## )/ms', $readme, $match));
+        $section = $match[1];
+        $needles = [
+            'Works out of the box',
+            'dmlab.customer.sso.button',
+            'dmlab.customer.sso.identities',
+            'Hyvä Checkout',
+        ];
+        foreach ($needles as $needle) {
+            self::assertStringContainsString($needle, $section);
+        }
+        self::assertStringNotContainsString('referenceBlock', $section);
+    }
+
     public function testComposerSupportsMagento247AndPhp82(): void
     {
         $composer = json_decode((string)file_get_contents($this->root() . '/composer.json'), true);
@@ -109,10 +136,12 @@ class PackagingTest extends TestCase
             'magento/module-customer' => '^103.0.7',
             'magento/module-store' => '^101.1.7',
         ], $magento);
+        self::assertSame('^0.3.0', $composer['require']['dmlab/module-sso-core']);
         self::assertSame('^11.5||^12.5', $composer['require-dev']['phpunit/phpunit']);
         self::assertSame('https://github.com/dmlab-work/module-customer-sso', $composer['homepage']);
         self::assertSame($composer['homepage'] . '/issues', $composer['support']['issues']);
         self::assertArrayHasKey('dmlab/module-customer-passkey', $composer['suggest']);
+        self::assertContains('keycloak', $composer['keywords']);
     }
 
     public function testEveryReadmeImageExists(): void

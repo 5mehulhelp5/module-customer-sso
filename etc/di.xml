@@ -7,10 +7,34 @@
 -->
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <!-- Built-in Generic OIDC preset; plugins add branded ones. -->
+    <virtualType name="DmLab\CustomerSso\Model\Preset\GenericOidcConfig"
+                 type="DmLab\SsoCore\Model\Preset\GenericOidcConfig">
+        <arguments>
+            <argument name="basePath" xsi:type="string">dmlab_customer_sso/generic</argument>
+            <argument name="scopeType" xsi:type="string">store</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="DmLab\CustomerSso\Model\Preset\GenericOidcPreset"
+                 type="DmLab\SsoCore\Model\Preset\GenericOidcPreset">
+        <arguments>
+            <argument name="config" xsi:type="object">DmLab\CustomerSso\Model\Preset\GenericOidcConfig</argument>
+        </arguments>
+    </virtualType>
     <!-- Open/closed seam: provider plugins di-merge their preset into `presets`. -->
     <type name="DmLab\CustomerSso\Model\PresetRegistry">
         <arguments>
-            <argument name="presets" xsi:type="array"/>
+            <argument name="presets" xsi:type="array">
+                <item name="generic" xsi:type="object">DmLab\CustomerSso\Model\Preset\GenericOidcPreset</item>
+            </argument>
+        </arguments>
+    </type>
+    <!-- The generic preset's label is the configured display name; the dropdown needs the provider name. -->
+    <type name="DmLab\CustomerSso\Model\Config\Source\ActiveProvider">
+        <arguments>
+            <argument name="optionLabels" xsi:type="array">
+                <item name="generic" xsi:type="string" translate="true">Generic OIDC</item>
+            </argument>
         </arguments>
     </type>
     <!-- Refuse native password login (form, ajax, REST and GraphQL tokens) when "Keep Password Login" is off. -->

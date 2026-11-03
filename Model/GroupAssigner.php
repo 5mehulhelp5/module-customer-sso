@@ -25,7 +25,8 @@ use Magento\Store\Model\StoreManagerInterface;
  * to the store's default customer group when nothing matches. A customer holds a
  * single group, so the first matching rule (config line order) wins.
  *
- * Only active when the admin has configured a group map: with no rules it is a
+ * Only active when the admin has configured a group map and the active preset has a
+ * groups claim (Generic OIDC with an empty Groups Claim has none): otherwise a
  * no-op, so a store using SSO purely for login never has its manually curated
  * customer groups touched. Once a map exists it runs on every SSO login — on JIT
  * create it grants the initial group, on subsequent logins it refreshes it so IdP
@@ -53,6 +54,7 @@ class GroupAssigner
      * @param GroupManagementInterface $groupManagement
      * @param GroupRepositoryInterface $groupRepository
      * @param StoreManagerInterface $storeManager
+     * @param ActiveProviderResolver $activeProviderResolver
      */
     public function __construct(
         private readonly Config $config,
@@ -60,7 +62,8 @@ class GroupAssigner
         private readonly CustomerRepositoryInterface $customerRepository,
         private readonly GroupManagementInterface $groupManagement,
         private readonly GroupRepositoryInterface $groupRepository,
-        private readonly StoreManagerInterface $storeManager
+        private readonly StoreManagerInterface $storeManager,
+        private readonly ActiveProviderResolver $activeProviderResolver
     ) {
     }
 
@@ -82,6 +85,10 @@ class GroupAssigner
         // No group governance configured: leave the customer's group untouched rather
         // than resetting an admin-assigned group to the store default on every login.
         if ($rules === []) {
+            return $customer;
+        }
+        // No groups claim: the identity carries no groups, so a miss would demote everyone.
+        if ($this->activeProviderResolver->getActive($storeId)?->getGroupsClaim() === null) {
             return $customer;
         }
         // Groups overage (e.g. Entra `_claim_names`): the list is incomplete, so a miss
