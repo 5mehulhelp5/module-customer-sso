@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Security: SSO no longer adopts an existing customer by email when the account has a password and store email confirmation is off — a pre-registered account could otherwise capture the IdP user. The shopper signs in with their password and links SSO under My Account.
+
 ## 0.3.0
 
 - Hyvä: the login-page button renders the Tailwind template automatically on Hyvä themes (no layout edit); CSP-compatible (no inline script or handlers).
