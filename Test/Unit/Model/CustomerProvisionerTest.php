@@ -17,6 +17,8 @@ use Magento\Customer\Api\Data\CustomerInterface;
 use Magento\Customer\Api\Data\CustomerInterfaceFactory;
 use Magento\Customer\Model\AccountConfirmation;
 use Magento\Customer\Model\Config\Share;
+use Magento\Customer\Model\CustomerRegistry;
+use Magento\Customer\Model\Data\CustomerSecure;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Store\Api\Data\StoreInterface;
@@ -56,6 +58,9 @@ class CustomerProvisionerTest extends TestCase
     /** @var AccountConfirmation&\PHPUnit\Framework\MockObject\Stub */
     private $accountConfirmation;
 
+    /** @var string password hash of the email-matched customer; '' = no password set. */
+    private string $passwordHash = '';
+
     /** @var CustomerProvisioner */
     private CustomerProvisioner $provisioner;
 
@@ -70,6 +75,10 @@ class CustomerProvisionerTest extends TestCase
         $this->activeProviderResolver->method('getActiveCode')->willReturn('okta');
         $this->shareConfig = $this->createStub(Share::class);
         $this->accountConfirmation = $this->createStub(AccountConfirmation::class);
+        $customerRegistry = $this->createStub(CustomerRegistry::class);
+        $customerRegistry->method('retrieveSecureData')->willReturnCallback(
+            fn(): CustomerSecure => new CustomerSecure(['password_hash' => $this->passwordHash])
+        );
 
         $store = $this->createStub(StoreInterface::class);
         $store->method('getId')->willReturn(3);
@@ -84,7 +93,8 @@ class CustomerProvisionerTest extends TestCase
             $this->config,
             $this->activeProviderResolver,
             $this->shareConfig,
-            $this->accountConfirmation
+            $this->accountConfirmation,
+            $customerRegistry
         );
     }
 
@@ -423,6 +433,51 @@ class CustomerProvisionerTest extends TestCase
         if ($refused) {
             $this->expectException(LocalizedException::class);
             $this->expectExceptionMessage('An account with this email address is awaiting email confirmation.');
+        }
+
+        self::assertSame(
+            $existing,
+            $this->provisioner->provision(new Identity('sub-new', 'jane@example.com', 'Jane', [], true))
+        );
+    }
+
+    /**
+     * @return array<string, array{bool, string|null, string, bool}>
+     */
+    public static function emailOwnership(): array
+    {
+        return [
+            'password, confirmation off (pre-registration takeover)' => [false, null, 'hash', true],
+            'password, confirmation off, stale confirmation key' => [false, 'stale-key', 'hash', true],
+            'password, address confirmed' => [true, null, 'hash', false],
+            'no password, confirmation off' => [false, null, '', false],
+        ];
+    }
+
+    #[DataProvider('emailOwnership')]
+    public function testPasswordAccountIsAdoptedOnlyWhenMagentoConfirmedTheEmail(
+        bool $confirmationRequired,
+        ?string $confirmation,
+        string $passwordHash,
+        bool $refused
+    ): void {
+        $existing = $this->createStub(CustomerInterface::class);
+        $existing->method('getId')->willReturn(7);
+        $existing->method('getConfirmation')->willReturn($confirmation);
+        $this->passwordHash = $passwordHash;
+
+        $this->subjectLink->method('findCustomerIdBySubject')->willReturn(null);
+        $this->subjectLink->method('getSubjectForProvider')->willReturn(null);
+        $this->config->method('isEmailLinkingEnabled')->willReturn(true);
+        $this->accountConfirmation->method('isConfirmationRequired')->willReturn($confirmationRequired);
+        $this->customerRepository->expects(self::once())->method('get')->willReturn($existing);
+        $this->customerRepository->expects(self::never())->method('save');
+        $this->customerFactory->expects(self::never())->method('create');
+        $this->subjectLink->expects($refused ? self::never() : self::once())->method('link');
+
+        if ($refused) {
+            $this->expectException(LocalizedException::class);
+            $this->expectExceptionMessage(self::EMAIL_EXISTS_MESSAGE);
         }
 
         self::assertSame(

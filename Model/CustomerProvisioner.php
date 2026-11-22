@@ -13,6 +13,7 @@ use Magento\Customer\Api\Data\CustomerInterface;
 use Magento\Customer\Api\Data\CustomerInterfaceFactory;
 use Magento\Customer\Model\AccountConfirmation;
 use Magento\Customer\Model\Config\Share;
+use Magento\Customer\Model\CustomerRegistry;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Store\Model\StoreManagerInterface;
@@ -25,8 +26,9 @@ use Magento\Store\Model\StoreManagerInterface;
  *  1. match by the stored IdP identity (issuer + `sub`) — the stable re-login key;
  *     with per-website accounts only links on the current website count;
  *  2. else match by email and adopt the existing customer, but only when the IdP
- *     verified the email, email linking is enabled, and the account is not bound to
- *     another identity of the same provider (takeover guard);
+ *     verified the email, email linking is enabled, the account is not bound to
+ *     another identity of the same provider (takeover guard), and no password was set
+ *     on it without Magento confirming the address (pre-registration takeover guard);
  *  3. else create a fresh `customer_entity` (JIT) and link it to the subject — only
  *     for an IdP-verified email, so an unverified identity cannot squat an address.
  *
@@ -59,6 +61,7 @@ class CustomerProvisioner
      * @param ActiveProviderResolver $activeProviderResolver
      * @param Share $shareConfig
      * @param AccountConfirmation $accountConfirmation
+     * @param CustomerRegistry $customerRegistry
      */
     public function __construct(
         private readonly CustomerInterfaceFactory $customerFactory,
@@ -68,7 +71,8 @@ class CustomerProvisioner
         private readonly Config $config,
         private readonly ActiveProviderResolver $activeProviderResolver,
         private readonly Share $shareConfig,
-        private readonly AccountConfirmation $accountConfirmation
+        private readonly AccountConfirmation $accountConfirmation,
+        private readonly CustomerRegistry $customerRegistry
     ) {
     }
 
@@ -78,7 +82,8 @@ class CustomerProvisioner
      * @param IdentityInterface $identity verified identity from sso-core
      * @return CustomerInterface the linked or newly created customer (persisted)
      * @throws LocalizedException when an existing email match may not be linked
-     *         (email unverified, linking disabled, or bound to another subject), or
+     *         (email unverified, linking disabled, bound to another subject, or holding
+     *         a password Magento never confirmed the address for), or
      *         when a new customer must be created but the email is missing or unverified
      * @throws \Magento\Framework\Exception\InputException
      * @throws \Magento\Framework\Exception\State\InputMismatchException
@@ -162,9 +167,10 @@ class CustomerProvisioner
      * logins resolve by it. Refuses when the account already holds an identity for the
      * current provider (takeover guard — a match on this identity resolved in step 1),
      * when the IdP did not verify the email, or when email linking is disabled. Links
-     * under other providers do not block adoption. An account still awaiting email
-     * confirmation is refused too: its password was set by someone who never proved the
-     * address, and adopting it would hand that password holder the IdP user's account.
+     * under other providers do not block adoption. An account with a password whose
+     * address Magento never confirmed (still awaiting confirmation, or confirmation off
+     * for the website) is refused too: anyone could have registered it, and adopting it
+     * would hand that password holder the IdP user's account.
      *
      * @param CustomerInterface $customer customer matched by email
      * @param IdentityInterface $identity
@@ -193,11 +199,25 @@ class CustomerProvisioner
             );
         }
 
-        if ($this->isAwaitingConfirmation($customer)) {
+        $confirmationRequired = $this->accountConfirmation->isConfirmationRequired(
+            $customer->getWebsiteId(),
+            $customer->getId(),
+            $customer->getEmail()
+        );
+        if ($confirmationRequired && (string)$customer->getConfirmation() !== '') {
             throw new LocalizedException(
                 __(
                     'An account with this email address is awaiting email confirmation. Confirm it with the '
                     . 'link we emailed you, then link single sign-on under My Account → Single Sign-On.'
+                )
+            );
+        }
+
+        if (!$confirmationRequired && $this->hasPassword($customerId)) {
+            throw new LocalizedException(
+                __(
+                    'An account with this email address already exists. Sign in with your password, '
+                    . 'then link single sign-on under My Account → Single Sign-On.'
                 )
             );
         }
@@ -257,18 +277,13 @@ class CustomerProvisioner
     }
 
     /**
-     * Whether the customer has a pending email confirmation that Magento still enforces.
+     * Whether the customer has a native password set.
      *
-     * @param CustomerInterface $customer
+     * @param int $customerId
      */
-    private function isAwaitingConfirmation(CustomerInterface $customer): bool
+    private function hasPassword(int $customerId): bool
     {
-        return (string)$customer->getConfirmation() !== ''
-            && $this->accountConfirmation->isConfirmationRequired(
-                $customer->getWebsiteId(),
-                $customer->getId(),
-                $customer->getEmail()
-            );
+        return (string)$this->customerRegistry->retrieveSecureData($customerId)->getPasswordHash() !== '';
     }
 
     /**

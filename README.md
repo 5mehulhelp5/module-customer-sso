@@ -108,7 +108,7 @@ An SSO identity is matched to a customer in this order:
 
 1. **By IdP identity** — issuer (`iss`) + subject (`sub`) stored in `dmlab_customer_sso_subject` per provider. Signs in regardless of email verification. A link created before issuers were stored is bound to the issuer of its next matching login.
 2. **By email**, governed by `auto_link_policy`:
-   - `require_verification` (default) — adopt the existing customer only when the IdP marks the email verified (`email_verified`) and the account is not awaiting email confirmation. Legacy `auto` resolves to this.
+   - `require_verification` (default) — adopt the existing customer only when the IdP marks the email verified (`email_verified`) and Magento has proven the account owns the address: an account with a password is adopted only after it confirmed its email (`customer/create_account/confirm` on), never while confirmation is pending or off, so a pre-registered account cannot capture the IdP user. Password-less accounts (e.g. admin-created) are adopted. Legacy `auto` resolves to this.
    - `disabled` — never link by email.
 
    Otherwise the login is refused and the shopper is told to sign in with their password and link from My Account — keep *Keep Password Login* on if existing customers may need this path.

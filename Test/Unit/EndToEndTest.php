@@ -49,6 +49,8 @@ use Magento\Customer\Api\GroupManagementInterface;
 use Magento\Customer\Api\GroupRepositoryInterface;
 use Magento\Customer\Model\AccountConfirmation;
 use Magento\Customer\Model\Config\Share;
+use Magento\Customer\Model\CustomerRegistry;
+use Magento\Customer\Model\Data\CustomerSecure;
 use Magento\Customer\Model\Session;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\App\RequestInterface;
@@ -133,6 +135,9 @@ class EndToEndTest extends TestCase
 
     /** @var array<string,CustomerInterface> pre-existing customers keyed by email. */
     private array $customersByEmail = [];
+
+    /** @var array<int,string> password hashes of pre-existing customers keyed by id; absent = none. */
+    private array $passwordHashes = [];
 
     /** @var Sso */
     private Sso $block;
@@ -298,7 +303,8 @@ class EndToEndTest extends TestCase
             $config,
             $resolver,
             $this->createStub(Share::class),
-            $this->createStub(AccountConfirmation::class)
+            $this->createStub(AccountConfirmation::class),
+            $this->customerRegistry()
         );
 
         $groupAssigner = new GroupAssigner(
@@ -490,6 +496,21 @@ class EndToEndTest extends TestCase
         $state = $this->runStart();
 
         // Linking is refused → no session, back to the login page, no link stored.
+        $this->session->expects(self::never())->method('setCustomerDataAsLoggedIn');
+
+        $this->runCallback('auth-code', $state, 'customer/account/login');
+
+        self::assertArrayNotHasKey(self::LINK_KEY, $this->subjectLinks);
+    }
+
+    public function testEmailMatchWithUnconfirmedPasswordNotLinked(): void
+    {
+        // Natively registered with a password while store confirmation is off: nobody proved the address.
+        $this->customersByEmail[self::EMAIL] = $this->customer(self::EXISTING_CUSTOMER_ID);
+        $this->passwordHashes[self::EXISTING_CUSTOMER_ID] = 'attacker-hash';
+
+        $state = $this->runStart();
+
         $this->session->expects(self::never())->method('setCustomerDataAsLoggedIn');
 
         $this->runCallback('auth-code', $state, 'customer/account/login');
@@ -740,6 +761,19 @@ class EndToEndTest extends TestCase
         $repository->method('save')->willReturnArgument(0);
 
         return $repository;
+    }
+
+    /**
+     * Customer registry fake: secure data carries the hash from {@see self::$passwordHashes}.
+     */
+    private function customerRegistry(): CustomerRegistry
+    {
+        $registry = $this->createStub(CustomerRegistry::class);
+        $registry->method('retrieveSecureData')->willReturnCallback(
+            fn($id): CustomerSecure => new CustomerSecure(['password_hash' => $this->passwordHashes[(int)$id] ?? ''])
+        );
+
+        return $registry;
     }
 
     /**
